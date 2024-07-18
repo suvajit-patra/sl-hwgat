@@ -1,15 +1,12 @@
-# Copy Train_Test_Split INCLUDE folder to ./ to run this code
-
-
 from math import ceil
 import os
 import csv
 from meta_generator import generate_meta
 
 if __name__ == "__main__":
-    root = "/data1"
-    data_path = "/data1/data"
-    split_file = "/data1/data/metadata.csv"
+    root = "/data/datasets"
+    data_path = "/data/datasets/FDMSE/FDMSE"
+    split_file = "/data/datasets/FDMSE/metadata.csv"
 
     # initializing the titles and rows list
     header = []

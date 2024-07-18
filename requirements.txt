@@ -1,0 +1,7 @@
+torch==1.13.1
+numpy==1.23.3
+tqdm==4.64.1
+opencv-python==4.6.0.66
+mediapipe==0.8.11
+decord==0.6.0
+timm==1.0.3

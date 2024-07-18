@@ -8,10 +8,9 @@ from decord import cpu
 import numpy as np
 from tqdm import tqdm
 import pickle
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool
 import os
 import argparse
-from numpy import ndarray
 from pose_modules.keypoint_extract_models import *
 import warnings
 import importlib
@@ -129,7 +128,7 @@ if __name__ == '__main__':
     #             'vid_loc': vid_loc,
     #             'vid_name': vid_name,
     #             'vid_width': vid_width,
-    #             'vid_height': vid_width
+    #             'vid_height': vid_height
     #         }
     
     #pickle.dump(storing_data, open(filename, "wb"))
@@ -147,7 +146,7 @@ if __name__ == '__main__':
                 'vid_loc': vid_loc,
                 'vid_name': vid_name,
                 'vid_width': vid_width,
-                'vid_height': vid_width
+                'vid_height': vid_height
             }
             # saving the calculated mediapipe features with video id
             filename = os.path.join(out_path, id+".pkl")

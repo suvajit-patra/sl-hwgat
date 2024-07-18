@@ -1,7 +1,3 @@
-# to run this code you need to copy ./WLASL/code/I3D/preprocess to ./
-
-
-
 import json
 import os
 import argparse

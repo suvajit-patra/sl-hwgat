@@ -11,7 +11,6 @@ from losses.SmoothCrossEntropy import SmoothedCrossEntropyLoss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import shutil
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
             
 
 def get_dataloader(cfg):
