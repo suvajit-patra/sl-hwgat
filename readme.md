@@ -95,14 +95,11 @@ Go to [this repository](https://github.com/suvajit-patra/sl-hwgat-demo) to get t
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
 
-Thank you for using this repository. For any questions or support, please open an issue in this repository.
-
----
 
 ## Citation
-
+If you find this project useful in your research, please consider cite:
+```bibtex
 @misc{patra2024hierarchicalwindowedgraphattention,
       title={Hierarchical Windowed Graph Attention Network and a Large Scale Dataset for Isolated Indian Sign Language Recognition}, 
       author={Suvajit Patra and Arkadip Maitra and Megha Tiwari and K. Kumaran and Swathy Prabhu and Swami Punyeshwarananda and Soumitra Samanta},
@@ -112,5 +109,11 @@ Thank you for using this repository. For any questions or support, please open a
       primaryClass={cs.CV},
       url={https://arxiv.org/abs/2407.14224}, 
 }
+```
 
 ---
+
+Thank you for using this repository. For any questions or support, please open an issue in this repository.
+
+---
+
