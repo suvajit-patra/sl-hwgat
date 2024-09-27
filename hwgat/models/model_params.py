@@ -2,7 +2,7 @@ import numpy as np
 import torch.nn as nn
 import torch
 
-class SignAttention_v6Params():
+class HWGATParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
         self.kp_dim=input_dim
         self.num_kps=64

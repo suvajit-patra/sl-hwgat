@@ -67,23 +67,23 @@ Once the data is preprocessed, you can train the HWGAT model using the training 
 
 2. **Training the model:** Start the training process of the model by running
     ```bash
-    python main.py -m train -d FDMSE --model SignAttention_v6 -p mediapipe
+    python main.py -m train -d FDMSE --model HWGAT -p mediapipe
     ```
 
 3. **Testing the model:** Test the model using
     ```bash
-    python main.py -m test -d FDMSE --model SignAttention_v6 -p mediapipe -t 240227_1807 -px best_loss
+    python main.py -m test -d FDMSE --model HWGAT -p mediapipe -t 240227_1807 -px best_loss
     ```
 
 4. **Load and train the model:** Load and train the model or finetune on different datasets using
     1. Load and train on same dataset.
         ```bash
-        python main.py -m load -d FDMSE --model SignAttention_v6 -p mediapipe -t 240227_1807 -px best_loss
+        python main.py -m load -d FDMSE --model HWGAT -p mediapipe -t 240227_1807 -px best_loss
         ```
 
     1. Finetune on other dataset.
         ```bash
-        python main.py -m load -d INCLUDE --model SignAttention_v6 -p mediapipe -mw output/FDMSE/SignAttention_v6_240227_1807/model_best_loss.pt
+        python main.py -m load -d INCLUDE --model HWGAT -p mediapipe -mw output/FDMSE/HWGAT_240227_1807/model_best_loss.pt
         ```
 
 
