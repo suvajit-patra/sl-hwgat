@@ -100,3 +100,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Thank you for using this repository. For any questions or support, please open an issue in this repository.
 
 ---
+
+## Citation
+
+@misc{patra2024hierarchicalwindowedgraphattention,
+      title={Hierarchical Windowed Graph Attention Network and a Large Scale Dataset for Isolated Indian Sign Language Recognition}, 
+      author={Suvajit Patra and Arkadip Maitra and Megha Tiwari and K. Kumaran and Swathy Prabhu and Swami Punyeshwarananda and Soumitra Samanta},
+      year={2024},
+      eprint={2407.14224},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2407.14224}, 
+}
+
+---
