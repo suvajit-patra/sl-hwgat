@@ -117,15 +117,9 @@ if __name__ == '__main__':
     model = args.model
     num_processes = args.num_processes
 
-    try:
-        # making mediapipe output storing folder
-        if os.path.exists(out_path):
-            print("Files already exists")
-            exit(0)
-        else:
-            os.makedirs(out_path)
-    except:
-        pass
+    # making mediapipe output storing folder
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
 
     storing_data = {}
 
