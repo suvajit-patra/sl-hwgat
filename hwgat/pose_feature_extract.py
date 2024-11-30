@@ -15,6 +15,7 @@ from pose_modules.keypoint_extract_models import *
 import warnings
 import importlib
 warnings.filterwarnings('ignore')
+import gc
 
 # vid_features = {}  # {'vid_name' : np.array(fps, 1662)}
 # vid_num_frames = {}    # {'vid_name' : fps}
@@ -63,22 +64,29 @@ def get_video_features(vid_name) -> list:
     pose_model = get_model(model)
     kp_shape = keypoint_model_dict[model]['shape']
 
-    if type(vid_name) is str:
-        cap = VideoReader(vid_name, ctx=cpu(0))
-    else:
-        cap = VideoReader(os.path.join(vid_name[2], vid_name[0], vid_name[1]), ctx=cpu(0))
+    try:
+        if type(vid_name) is str:
+            cap = VideoReader(vid_name, ctx=cpu(0))
+        else:
+            cap = VideoReader(os.path.join(vid_name[2], vid_name[0], vid_name[1]), ctx=cpu(0))
 
-    num_frames = len(cap)
-    vid_height, vid_width = cap[0].shape[:2]
+        num_frames = len(cap)
+        vid_height, vid_width = cap[0].shape[:2]
 
-    features = np.zeros((num_frames, *kp_shape))
+        features = np.zeros((num_frames, *kp_shape))
 
-    i_th_frame = 0
+        i_th_frame = 0
 
-    for image in cap:
-        # saving the i-th frame feature
-        features[i_th_frame] = pose_model(image.asnumpy())[0]
-        i_th_frame += 1
+        for image in cap:
+            # saving the i-th frame feature
+            features[i_th_frame] = pose_model(image.asnumpy())[0]
+            i_th_frame += 1
+    except:
+        print("Error  --> ", vid_name)
+        features = None
+        i_th_frame = None
+        vid_height = None
+        vid_width = None
 
     return vid_name[0], vid_name[1], features, i_th_frame, vid_name[3], vid_width, vid_height
 
@@ -111,13 +119,28 @@ if __name__ == '__main__':
 
     try:
         # making mediapipe output storing folder
-        os.makedirs(out_path)
+        if os.path.exists(out_path):
+            print("Files already exists")
+            exit(0)
+        else:
+            os.makedirs(out_path)
     except:
         pass
 
     storing_data = {}
 
     vid_names = init(root, meta)
+
+    print(len(vid_names))
+
+    new_vid_names = []
+    for row_ in tqdm(vid_names):
+        if str(row_[-1])+".pkl" in os.listdir(out_path):
+            continue
+        else:
+            new_vid_names.append(row_)
+
+    print(len(new_vid_names))
 
     # vid_loc, vid_name, features, num_frames, id, vid_width, vid_height = get_video_features(vid_names[0])
     # print(features)
@@ -133,10 +156,14 @@ if __name__ == '__main__':
     
     #pickle.dump(storing_data, open(filename, "wb"))
 
+
+
     # creating multiple processes to reduce the processing time
     with Pool(processes=num_processes) as pool:
+        
         results = tqdm(pool.imap_unordered(get_video_features,
-                       vid_names), total=len(vid_names), desc='Videos')
+                                               vid_names), total=len(new_vid_names), desc='Videos')
+
         for vid_loc, vid_name, features, num_frames, id, vid_width, vid_height in results:
             if features is None:
                 continue
@@ -149,6 +176,11 @@ if __name__ == '__main__':
                 'vid_height': vid_height
             }
             # saving the calculated mediapipe features with video id
+            
             filename = os.path.join(out_path, id+".pkl")
             with open(filename, "wb") as outfile:
                 pickle.dump(storing_data, outfile)
+
+            storing_data = {}
+
+            gc.collect()
