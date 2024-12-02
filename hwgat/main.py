@@ -1,9 +1,8 @@
 from utils import *
 import argparse
-from configs import CFG
+from configs import runCFG
 from constants import *
 from inference import show_final_result_, get_dataloader_
-from pose_modules.keypoint_extract_models import *
 
 def parser():
     # Initialize the Parser
@@ -31,9 +30,6 @@ def parser():
     parser.add_argument('-ft','--feature_type', type=str,
                         required=False, default=feature_type_list[1], help=f'Select from {feature_type_list}')
     
-    parser.add_argument('-p', '--posemethod', type=str, required=False, default=list(keypoint_model_dict.keys())[0],
-                        help=f'keypoint extraction model {keypoint_model_dict.keys()}')
-    
     parser.add_argument('-mw', '--model_weights', type=str, required=False, default='none',
                         help=f'Location of the .pt file to load weights from. Don\'t use this argument if you are not finetuning')
     
@@ -48,7 +44,7 @@ if __name__ == "__main__":
 
     args = parser()
 
-    cfg = CFG(args.dataset, args.model, args.postfix, args.feature_type, args.posemethod, args.mode, args.time, args.model_weights, args.cuda)
+    cfg = runCFG(args.dataset, args.model, args.postfix, args.feature_type, args.mode, args.time, args.model_weights, args.cuda)
 
     # input to the model
     print(cfg.dataset_name)

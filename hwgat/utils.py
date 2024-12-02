@@ -284,12 +284,12 @@ def run_epochs(model, train_loader, val_loader, criterion, optimizer, scheduler,
 
         
         plot_results(train_loss_list, val_loss_list, 'loss', cfg.criterion_type, cfg.save_loss_curve_path)
-        plot_results(train_acc_list, val_acc_list, 'acc', cfg.criterion_type, cfg.save_acc_curve_path)
+        plot_results(train_acc_list, val_acc_list, 'acc', 'accuracy', cfg.save_acc_curve_path)
 
         if cfg.early_stopping and early_stopper.early_stop(val_acc):             
             break
     
-def plot_results(train_list, val_list, option, criterion_type, save_path):
+def plot_results(train_list, val_list, option, y_label, save_path):
     x = list(range(0, len(train_list)))
     plt.grid()
     # Plotting all lines with specifying labels
@@ -298,7 +298,7 @@ def plot_results(train_list, val_list, option, criterion_type, save_path):
     # Adding legend, x and y labels, and titles for the lines
     plt.legend()
     plt.xlabel('epochs')
-    plt.ylabel(criterion_type)
+    plt.ylabel(y_label)
     plt.title(f'{option} curve')
     # Displaying the plot
     plt.savefig(save_path)

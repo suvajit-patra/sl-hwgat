@@ -2,6 +2,82 @@ import numpy as np
 import torch.nn as nn
 import torch
 
+class GATParams():
+    def __init__(self, dataset_params, input_dim, device=None) -> None:
+        self.kp_dim=input_dim
+        self.num_kps=29
+        self.temporal_dim=dataset_params['src_len']
+        self.num_classes=dataset_params['num_class']
+        self.embed_dim=128
+        self.pe=True
+        self.depths=4
+        self.num_heads=8
+        self.ff_ratio=2.
+        self.drop_rate=0.1
+        self.attn_drop_rate=0.0
+        self.norm_layer=nn.LayerNorm
+        self.device=device
+
+        self.edges = [
+                    [2, 0],
+                    [1, 0],
+                    [0, 3],
+                    [0, 4],
+                    [3, 5],
+                    [4, 6],
+                    [5, 7],
+                    [6, 8],
+                    [7, 9],
+                    [9, 10],
+                    [9, 11],
+                    [11, 12],
+                    [11, 13],
+                    [13, 14],
+                    [9, 13],
+                    [13, 15],
+                    [9, 15],
+                    [15, 16],
+                    [15, 17],
+                    [9, 17],
+                    [17, 18],
+                    [8, 19],
+                    [9+10, 10+17],
+                    [9+10, 10+10],
+                    [9+10, 10+11],
+                    [11+10, 10+12],
+                    [11+10, 10+13],
+                    [13+10, 10+14],
+                    [9+10, 10+13],
+                    [13+10, 10+15],
+                    [9+10, 10+15],
+                    [15+10, 10+16],
+                    [9+10, 10+17],
+                    [15+10, 10+17],
+                    [17+10, 10+18],
+                    [9+10, 10+17],   
+                ]
+
+        self.edge_bias = torch.tensor(self.get_adj(self.edges, self.temporal_dim, self.num_kps), dtype=torch.float32)
+
+    def get_adj(self, spatial_links, num_fr, num_kp):
+        A = np.zeros((num_fr*num_kp, num_fr*num_kp))
+        for f in range(num_fr):
+            for i, j in spatial_links:
+                u, v = i+num_kp*f, j+num_kp*f
+                A[u, v] = 1
+                A[v, u] = 1
+            for i in range(num_kp):
+                if f < num_fr -1:
+                    u, v = i+num_kp*f, i+num_kp*(f+1)
+                    A[u, v] = 1
+                    A[v, u] = 1
+
+        return A
+    
+    def get_model_params(self):
+        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.pe,self.depths,self.num_heads,self.ff_ratio,self.edge_bias,self.drop_rate,self.attn_drop_rate,self.norm_layer,self.device
+
+
 class HWGATParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
         self.kp_dim=input_dim
@@ -358,3 +434,20 @@ class DecoupledGCNParams():
  
     def get_model_params(self):
         return self.kp_dim, self.num_kps, self.edges_, self.groups, self.block_size, self.n_out_features, self.num_classes, self.dropout_ratio, self.batch_norm
+
+class TransformerParams():
+    def __init__(self, dataset_params, input_dim, device=None) -> None:
+        self.input_dim = input_dim
+        self.num_kp = 29
+        self.nclass = dataset_params['num_class']
+        self.pad_index=-1
+        self.d_model=512
+        self.nhead=8
+        self.dim_feedforward=2048
+        self.num_encoder_layers=3
+        self.dropout=0.1
+        self.max_len=dataset_params['src_len']
+        self.pool='mean'
+    
+    def get_model_params(self):
+        return self.input_dim*self.num_kp, self.nclass, self.pad_index, self.d_model, self.nhead, self.dim_feedforward, self.num_encoder_layers, self.dropout, self.max_len, self.pool

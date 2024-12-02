@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 import pickle
 from decord import VideoReader
 from decord import cpu
+import numpy as np
 
 class CustomDataset(Dataset):
     def __init__(self, vid_splits, vid_data, vid_tar, max_len, transformation):
@@ -17,14 +18,14 @@ class CustomDataset(Dataset):
         self.max_len = max_len
         self.transformation = transformation
 
-    def load_data(self, path):
-        if path[-3:] == 'pkl':
-            data = pickle.load(open(path, "rb"))
-        elif path[-3:] == "mp4":
-            data = VideoReader(path, ctx=cpu(0)).asnumpy()
-        else:
-            data = None
-        return data
+    def load_data(self, data):
+        if isinstance(data, np.ndarray):
+            return data 
+        if data[-3:] == 'pkl':
+            return pickle.load(open(data, "rb"))
+        if data[-3:] == "mp4":
+            return VideoReader(data, ctx=cpu(0)).asnumpy()
+        return None
     
     def __len__(self):
         return len(self.vid_splits)
