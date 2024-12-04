@@ -4,51 +4,6 @@ import numpy as np
 from timm.models.layers import trunc_normal_
 from torch.autograd import Variable
 import math
-import random
-
-class DropPart(nn.Module):
-    "regularisation"
-
-    def __init__(self, drop_prob=0.2, num_kps=64, device=torch.device("cuda:0")):
-        super(DropPart, self).__init__()
-        self.drop_prob = drop_prob
-        self.parts_idx = {
-            "head": [0, 1, 2],
-            "l_arm": [3, 5, 7],
-            "l_hand": list(range(9, 19)),
-            "r_arm": [4, 6, 8],
-            "r_hand": list(range(19, 29)),
-        }
-
-        self.window_idx = self.parts_idx["head"] + self.parts_idx["l_arm"] + self.parts_idx["l_hand"] + \
-            self.parts_idx["head"] + self.parts_idx["r_arm"] + self.parts_idx["r_hand"] + \
-            self.parts_idx["head"] + self.parts_idx["l_arm"] + self.parts_idx["r_hand"] + \
-            self.parts_idx["head"] + self.parts_idx["r_arm"] + self.parts_idx["l_hand"]
-        
-        self.parts_map = {"head":[], "l_arm": [], "l_hand": [], "r_arm": [], "r_hand": []}
-
-
-        for idx, val in enumerate(self.window_idx):
-            for key in self.parts_idx.keys():
-                if val in self.parts_idx[key]:
-                    self.parts_map[key].append(idx)
-
-        self.list_ = []
-        for key in list(self.parts_map.keys()):
-            temp = torch.ones((num_kps, 1), device = device)
-            indices = torch.tensor(self.parts_map[key], device=device)
-            temp.index_fill_(0, indices, 0.0)
-            self.list_.append(temp.unsqueeze(0))
-
-    def forward(self, x):
-        if self.training:
-            B, F, K, D = x.shape           
-            num_frames_drop = int(self.drop_prob*F)
-            temp = random.choice(self.list_)
-            start_frame = random.choice(list(range(F - num_frames_drop)))
-            x[:, start_frame:start_frame+num_frames_drop, :, :] *= temp
-        return x
-        
 
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
@@ -108,33 +63,12 @@ def window_reverse(x, window_size=16, temporal_patch_size=4, temporal_dim=128, n
     x = x.view(B, F, K, ED)
     return x
 
-class KpEmbed(nn.Module):
-    def __init__(self, kp_dim=26, embed_dim=64, norm_layer=None) -> None:
-        super().__init__()
-        self.kp_dim = kp_dim
-        self.embed_dim = embed_dim
-
-        self.proj = nn.Linear(in_features=self.kp_dim, out_features=embed_dim)
-        if norm_layer is not None:
-            self.norm = norm_layer(embed_dim)
-        else:
-            self.norm = None
-
-    def forward(self, x):
-        B, F, K, D = x.shape
-        x = self.proj(x)  # B, F, K, ed
-        if self.norm is not None:
-            x = self.norm(x)
-        return x
-
 class TemporalMerging(nn.Module):
     def __init__(self, dim, embed_dim_inc_rate, temporal_patch_size, norm_layer=nn.LayerNorm, device = "cpu") -> None:
         super().__init__()
         self.dim = dim
         self.embed_dim_inc_rate = embed_dim_inc_rate
         self.temporal_patch_size = temporal_patch_size
-        # self.reduction = nn.Linear(temporal_patch_size * dim, embed_dim_inc_rate * dim, bias=False)
-        # self.norm = norm_layer(temporal_patch_size * dim)
         self.device = device
     
     def forward(self, x):
@@ -145,10 +79,6 @@ class TemporalMerging(nn.Module):
             x_list.append(torch.index_select(x, 1, torch.arange(i, F, self.temporal_patch_size, device = self.device)))
 
         x = torch.cat(x_list, -1)  # B F/temporal_patch_size ED
-        # print('after concate', x.shape)
-
-        # x = self.norm(x)
-        # x = self.reduction(x)
 
         return x
     
@@ -164,15 +94,12 @@ class MSA(nn.Module):
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
         self.edge_bias = edge_bias
-        # print(edge_bias.shape)
-        
         self.qkv = nn.Linear(dim, dim * 3)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
         self.softmax = nn.Softmax(dim=-1)
-        self.attn_act = nn.ReLU()
     
     def forward(self, x, B, f, w, mask=None):
         B_f_nW, W_TP, ED = x.shape
@@ -313,6 +240,8 @@ class PartAttentionBlock(nn.Module):
         # W-MSA/TS-MSA
         x = self.attn(x, B, f, nW, mask=self.attn_mask)  # B_f_nW, W_TP, ED
 
+        x = window_reverse(shifted_x, W, TP, F, K)
+        
         # cyclic shift
         if self.shift_size > 0:
             shifted_x = torch.roll(x, shifts=self.shift_size, dims=1)
@@ -320,7 +249,6 @@ class PartAttentionBlock(nn.Module):
         else:
             shifted_x = x
             # partition windows
-        x = window_reverse(shifted_x, W, TP, F, K)
 
         x = shortcut + x
         # FFN

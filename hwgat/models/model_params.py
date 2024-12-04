@@ -2,7 +2,7 @@ import numpy as np
 import torch.nn as nn
 import torch
 
-class GATParams():
+class GATEParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
         self.kp_dim=input_dim
         self.num_kps=29
@@ -10,7 +10,7 @@ class GATParams():
         self.num_classes=dataset_params['num_class']
         self.embed_dim=128
         self.pe=True
-        self.depths=4
+        self.depths=8
         self.num_heads=8
         self.ff_ratio=2.
         self.drop_rate=0.1
@@ -78,7 +78,7 @@ class GATParams():
         return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.pe,self.depths,self.num_heads,self.ff_ratio,self.edge_bias,self.drop_rate,self.attn_drop_rate,self.norm_layer,self.device
 
 
-class HWGATParams():
+class HWGATEParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
         self.kp_dim=input_dim
         self.num_kps=64
@@ -242,7 +242,7 @@ class HWGATParams():
     def get_model_params(self):
         return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.ape,self.depths,self.num_heads,self.window_size,self.edge_bias,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.kp_norm,self.device
 
-class HWGAT_no_windowParams():
+class HWGATE_no_windowParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
         self.kp_dim=input_dim
         self.num_kps=29

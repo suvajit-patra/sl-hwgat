@@ -139,7 +139,8 @@ class Model(nn.Module):
         self.pe = pe
         self.num_heads = num_heads
         self.ff_ratio = ff_ratio
-        edge_bias_new = nn.Parameter(edge_bias.masked_fill(edge_bias == 0, float(-10000)).unsqueeze(0).unsqueeze(0), requires_grad=False).to(device)
+        edge_bias_ = edge_bias.masked_fill(edge_bias == 0, float(-10000)).masked_fill(edge_bias == 1, float(0)).unsqueeze(0).unsqueeze(0)
+        edge_bias_new = nn.Parameter(edge_bias_, requires_grad=False).to(device)
         self.edge_bias_name = 'edge_bias'
         self.embed_dim = embed_dim
         self.drop_rate = drop_rate
@@ -176,8 +177,8 @@ class Model(nn.Module):
             self.layers.append(layer)
 
         self.norm = norm_layer(self.embed_dim)
-        # self.avgpool = nn.AvgPool1d(self.temporal_dim*self.num_kps)
-        self.weightedAvg = nn.Linear(self.temporal_dim*self.num_kps, 1)
+        self.avgpool = nn.AvgPool1d(self.temporal_dim*self.num_kps)
+        # self.weightedAvg = nn.Linear(self.temporal_dim*self.num_kps, 1)
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         self.apply(self._init_weights)
@@ -205,7 +206,7 @@ class Model(nn.Module):
             x = layer(x, self)
 
         x = self.norm(x)  # B F_K ED
-        x = self.weightedAvg(x.transpose(1, 2)).squeeze(-1)  # B ED
+        x = self.avgpool(x.transpose(1, 2)).squeeze(-1)  # B ED
         return x
 
     def forward(self, x):

@@ -84,7 +84,7 @@ class runCFG(dataCFG):
         self.lr = 0.0005  # learning rate
         self.start_epoch = 0
         self.epochs = 4000
-        self.batch_size = 4
+        self.batch_size = 6
         self.best_val_loss = float('inf')
         self.n_workers = 8
 
