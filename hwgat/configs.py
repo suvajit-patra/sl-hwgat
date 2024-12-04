@@ -69,7 +69,7 @@ class runCFG(dataCFG):
         self.criterion_type = "smooth_cross_entropy"
         self.optimizer_type = "adamw"
         self.scheduler = "CosineAnnealingLR"
-        self.early_stopping = True
+        self.early_stopping = False
         self.early_stopping_step = 400
 
         self.device = torch.device(
@@ -83,8 +83,8 @@ class runCFG(dataCFG):
 
         self.lr = 0.0005  # learning rate
         self.start_epoch = 0
-        self.epochs = 4000
-        self.batch_size = 6
+        self.epochs = 200
+        self.batch_size = 4
         self.best_val_loss = float('inf')
         self.n_workers = 8
 
@@ -99,13 +99,13 @@ class runCFG(dataCFG):
                                         TemporalAugmentation(self.frame_augmentation, self.uniform_sample, self.random_sample),
                                         TemporalSample(self.src_len, self.random_shift),
                                         RandomFlip(self.feature_type),
-                                        # WindowCreate(self.src_len),
+                                        WindowCreate(self.src_len),
                                         ])
         
         self.test_transform = self.val_transform = Compose([HandCorrection(self.left_slice, self.right_slice),
                                                             NormalizeKeypoints(self.origin_idx, self.anchor_points),
                                                             TemporalSample(self.src_len),
-                                                            # WindowCreate(self.src_len),
+                                                            WindowCreate(self.src_len),
                                                             ])
 
         self.train_pin_memory = True

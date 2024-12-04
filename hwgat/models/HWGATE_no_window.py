@@ -85,7 +85,7 @@ class TemporalMerging(nn.Module):
         return x
     
 class MSA(nn.Module):
-    def __init__(self, dim, num_heads, edge_bias=None,
+    def __init__(self, dim, num_heads, adj_mat=None,
             attn_drop=0., proj_drop=0.) -> None:
         super().__init__()
         self.dim = dim
@@ -95,9 +95,9 @@ class MSA(nn.Module):
 
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
-        self.deg_matrix = torch.inverse(edge_bias@edge_bias)
-        self.edge_bias = nn.Parameter(edge_bias, requires_grad=True)
-        # print(edge_bias.shape)
+        self.deg_matrix = torch.inverse(adj_mat@adj_mat)
+        self.adj_mat = nn.Parameter(adj_mat, requires_grad=True)
+        # print(adj_mat.shape)
         
         self.qkv = nn.Linear(dim, dim * 3)
         self.attn_drop = nn.Dropout(attn_drop)
@@ -117,16 +117,16 @@ class MSA(nn.Module):
 
         attn = (q @ k.transpose(-2, -1))
         # print('QKt shape', attn.shape)
-        # print("Edge bias shape", self.edge_bias.shape)
+        # print("Edge bias shape", self.adj_mat.shape)
 
         if mask is not None:
             # print('mask and attention shape ',mask.shape, attn.view(B, f*w, *attn.shape[1:]).shape)
             attn = attn.view(B, f, *attn.shape[1:]) * mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(B*f, *attn.shape[2:])
         
-        if self.edge_bias is not None:
-            #print(attn.shape, self.edge_bias.shape)
-            attn = attn.view(B, f, *attn.shape[1:]) * self.edge_bias.unsqueeze(0).unsqueeze(1)
+        if self.adj_mat is not None:
+            #print(attn.shape, self.adj_mat.shape)
+            attn = attn.view(B, f, *attn.shape[1:]) * self.adj_mat.unsqueeze(0).unsqueeze(1)
             # attn = self.deg_matrix.unsqueeze(0).unsqueeze(1)*attn
             attn = attn.view(B*f, *attn.shape[2:])
 
@@ -165,7 +165,7 @@ class PartAttentionBlock(nn.Module):
                 temporal_patch_size=4,
                 temporal_dim=128,
                 shift_size=0,
-                edge_bias=None,
+                adj_mat=None,
                 drop=0., attn_drop=0.,
                 ff_ratio=4.,
                 act_layer=nn.GELU,
@@ -183,7 +183,7 @@ class PartAttentionBlock(nn.Module):
         self.act_layer = act_layer
 
         self.norm1 = norm_layer(dim)
-        self.attn = MSA(dim, num_heads=num_heads, edge_bias=edge_bias,
+        self.attn = MSA(dim, num_heads=num_heads, adj_mat=adj_mat,
             attn_drop=attn_drop, proj_drop=drop)
 
         self.norm2 = norm_layer(dim)
@@ -251,14 +251,14 @@ class PartAttentionBlock(nn.Module):
         return x
 
 class PartAttentionLayer(nn.Module):
-    def __init__(self, dim, temporal_patch_size, temporal_dim, embed_dim_inc_rate, num_kps, depth, num_heads, edge_bias,
+    def __init__(self, dim, temporal_patch_size, temporal_dim, embed_dim_inc_rate, num_kps, depth, num_heads, adj_mat,
                  drop=0., attn_drop=0., ff_ratio=4., norm_layer=nn.LayerNorm, downsample=None, device=None):
         super().__init__()
         self.dim = dim
         self.depth = depth
         self.num_heads = num_heads
-        self.edge_bias = edge_bias.to(device)
-        # self.register_buffer('edge_bias', self.edge_bias)
+        self.adj_mat = adj_mat.to(device)
+        # self.register_buffer('adj_mat', self.adj_mat)
 
         # build blocks
         self.blocks = nn.ModuleList([
@@ -267,7 +267,7 @@ class PartAttentionLayer(nn.Module):
                                  temporal_patch_size=temporal_patch_size,
                                  temporal_dim = temporal_dim,
                                  shift_size=0 if (i % 2 == 0) else temporal_patch_size // 2,
-                                 edge_bias=self.edge_bias,
+                                 adj_mat=self.adj_mat,
                                  drop=drop, attn_drop=attn_drop,
                                  ff_ratio=ff_ratio,
                                  norm_layer=norm_layer)
@@ -299,7 +299,7 @@ class Model(nn.Module):
                  ape=False,
                  depths=[2, 2, 6, 2],
                  num_heads=[2, 4, 8, 16],
-                 edge_bias=None,
+                 adj_mat=None,
                  drop_rate=0., attn_drop_rate=0., ff_ratio=4.,
                  norm_layer=nn.LayerNorm,
                  kp_norm=True,
@@ -312,7 +312,7 @@ class Model(nn.Module):
         self.num_classes = num_classes
         self.num_layers = len(depths)
         self.ape = ape
-        self.edge_bias = edge_bias
+        self.adj_mat = adj_mat
         self.embed_dim = embed_dim
         self.embed_dim_inc_rate = embed_dim_inc_rate
         self.num_features = int(embed_dim * embed_dim_inc_rate ** (self.num_layers - 1))
@@ -343,10 +343,10 @@ class Model(nn.Module):
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             adj_shape = temporal_patch_size
-            if edge_bias is not None:
-                edge_bias_t =  edge_bias
+            if adj_mat is not None:
+                adj_mat_t =  adj_mat
             else:
-                edge_bias_t = None
+                adj_mat_t = None
             layer = PartAttentionLayer(dim=int(embed_dim * embed_dim_inc_rate ** i_layer),
                                temporal_patch_size=temporal_patch_size,
                                temporal_dim=temporal_dim//(temporal_patch_size ** i_layer),
@@ -354,7 +354,7 @@ class Model(nn.Module):
                                num_kps=num_kps,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
-                               edge_bias=edge_bias_t,
+                               adj_mat=adj_mat_t,
                                drop=drop_rate, attn_drop=attn_drop_rate, ff_ratio=ff_ratio,
                                norm_layer=norm_layer,
                                downsample=TemporalMerging if (i_layer < self.num_layers - 1) else None,

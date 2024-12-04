@@ -28,7 +28,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
     
 class MSA(nn.Module):
-    def __init__(self, num_heads, dim, edge_bias=None,
+    def __init__(self, num_heads, dim, adj_mask=None,
             attn_drop=0., proj_drop=0.) -> None:
         super().__init__()
         self.dim = dim
@@ -42,7 +42,7 @@ class MSA(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
-        self.edge_bias = edge_bias
+        self.adj_mask = adj_mask
 
         self.softmax = nn.Softmax(dim=-1)
     
@@ -54,11 +54,11 @@ class MSA(nn.Module):
         q = q * self.scale
 
         attn = (q @ k.transpose(-2, -1))
-        # print(attn.size(), self.edge_bias.size())
+        # print(attn.size(), self.adj_mask.size())
         
-        if self.edge_bias is not None:
-            edge_bias = getattr(parent, self.edge_bias)
-            attn = attn + edge_bias
+        if self.adj_mask is not None:
+            adj_mask = getattr(parent, self.adj_mask)
+            attn = attn + adj_mask
         
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
@@ -91,7 +91,7 @@ class AttentionBlock(nn.Module):
                 num_heads=8,
                 ff_ratio=4.,
                 temporal_dim=128,
-                edge_bias=None,
+                adj_mask=None,
                 drop=0., attn_drop=0.,
                 act_layer=nn.GELU,
                 norm_layer=nn.LayerNorm):
@@ -104,7 +104,7 @@ class AttentionBlock(nn.Module):
         self.attn_drop = attn_drop
 
         self.norm1 = norm_layer(dim)
-        self.attn = MSA(num_heads, dim, edge_bias=edge_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = MSA(num_heads, dim, adj_mask=adj_mask, attn_drop=attn_drop, proj_drop=drop)
         self.norm2 = norm_layer(dim)
         self.ff = FeedForward(in_features=dim, hidden_features=int(self.ff_dim), act_layer=act_layer, drop=drop)
     
@@ -126,7 +126,7 @@ class Model(nn.Module):
                  depths=16,
                  num_heads=8,
                  ff_ratio=4.,
-                 edge_bias=None,
+                 adj_mat=None,
                  drop_rate=0., attn_drop_rate=0.,
                  norm_layer=nn.LayerNorm,
                  device=None,
@@ -139,16 +139,16 @@ class Model(nn.Module):
         self.pe = pe
         self.num_heads = num_heads
         self.ff_ratio = ff_ratio
-        edge_bias_ = edge_bias.masked_fill(edge_bias == 0, float(-10000)).masked_fill(edge_bias == 1, float(0)).unsqueeze(0).unsqueeze(0)
-        edge_bias_new = nn.Parameter(edge_bias_, requires_grad=False).to(device)
-        self.edge_bias_name = 'edge_bias'
+        adj_mask_ = adj_mat.masked_fill(adj_mat == 0, float(-10000)).masked_fill(adj_mat == 1, float(0)).unsqueeze(0).unsqueeze(0)
+        adj_mask_new = nn.Parameter(adj_mask_, requires_grad=False).to(device)
+        self.adj_mask_name = 'adj_mask'
         self.embed_dim = embed_dim
         self.drop_rate = drop_rate
         self.attn_drop_rate = attn_drop_rate
         self.norm_layer = norm_layer
-        if self.edge_bias_name in self._buffers:
-            del self._buffers[self.edge_bias_name]
-        self.register_buffer(self.edge_bias_name, edge_bias_new)
+        if self.adj_mask_name in self._buffers:
+            del self._buffers[self.adj_mask_name]
+        self.register_buffer(self.adj_mask_name, adj_mask_new)
         
         mapping_size = embed_dim//2
         scale = 10
@@ -170,15 +170,15 @@ class Model(nn.Module):
                                num_kps=self.num_kps,
                                num_heads=self.num_heads,
                                ff_ratio=self.ff_ratio,
-                               edge_bias=self.edge_bias_name,
+                               adj_mask=self.adj_mask_name,
                                drop=self.drop_rate, 
                                attn_drop=self.attn_drop_rate,
                                norm_layer=self.norm_layer)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.embed_dim)
-        self.avgpool = nn.AvgPool1d(self.temporal_dim*self.num_kps)
-        # self.weightedAvg = nn.Linear(self.temporal_dim*self.num_kps, 1)
+        # self.avgpool = nn.AvgPool1d(self.temporal_dim*self.num_kps)
+        self.weightedAvg = nn.Linear(self.temporal_dim*self.num_kps, 1)
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         self.apply(self._init_weights)
@@ -206,7 +206,8 @@ class Model(nn.Module):
             x = layer(x, self)
 
         x = self.norm(x)  # B F_K ED
-        x = self.avgpool(x.transpose(1, 2)).squeeze(-1)  # B ED
+        # x = self.avgpool(x.transpose(1, 2)).squeeze(-1)  # B ED
+        x = self.weightedAvg(x.transpose(1, 2)).squeeze(-1)  # B ED
         return x
 
     def forward(self, x):

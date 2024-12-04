@@ -66,7 +66,7 @@ def window_reverse(x, window_size=16, temporal_dim=128, num_kp=64):
     return x
     
 class MSA(nn.Module):
-    def __init__(self, num_heads, dim, edge_bias=None,
+    def __init__(self, num_heads, dim, adj_mask=None,
             attn_drop=0., proj_drop=0.) -> None:
         super().__init__()
         self.dim = dim
@@ -76,7 +76,7 @@ class MSA(nn.Module):
 
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
-        self.edge_bias = edge_bias
+        self.adj_mask = adj_mask
         self.qkv = nn.Linear(dim, dim * 3)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
@@ -84,24 +84,25 @@ class MSA(nn.Module):
 
         self.softmax = nn.Softmax(dim=-1)
     
-    def forward(self, x, parent):
-        B, F_K, ED = x.shape
-        qkv = self.qkv(x).reshape(B, F_K, 3, self.num_heads, ED // self.num_heads).permute(2, 0, 3, 1, 4)
+    def forward(self, x, B, nW, parent):
+        B_nW, F_W, ED = x.shape
+        qkv = self.qkv(x).reshape(B_nW, F_W, 3, self.num_heads, ED // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         q = q * self.scale
 
         attn = (q @ k.transpose(-2, -1))
-        # print(attn.size(), self.edge_bias.size())
+        # print(attn.size(), self.adj_mask.size())
         
-        if self.edge_bias is not None:
-            edge_bias = getattr(parent, self.edge_bias)
-            attn = attn + edge_bias
+        if self.adj_mask is not None:
+            adj_mask = getattr(parent, self.adj_mask)
+            attn = attn.view(B, nW, *attn.shape[1:]) + adj_mask.unsqueeze(1)
+            attn = attn.view(B*nW, *attn.shape[2:])
         
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, F_K, ED)
+        x = (attn @ v).transpose(1, 2).reshape(B_nW, F_W, ED)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -129,7 +130,7 @@ class PartAttentionBlock(nn.Module):
                 num_heads=4, window_size=16,
                 ff_ratio=4.,
                 temporal_dim=128,
-                edge_bias=None,
+                adj_mask=None,
                 drop=0., attn_drop=0.,
                 act_layer=nn.GELU,
                 norm_layer=nn.LayerNorm):
@@ -144,16 +145,17 @@ class PartAttentionBlock(nn.Module):
         self.attn_drop = attn_drop
 
         self.norm1 = norm_layer(dim)
-        self.attn = MSA(num_heads, dim, edge_bias=edge_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = MSA(num_heads, dim, adj_mask=adj_mask, attn_drop=attn_drop, proj_drop=drop)
         self.norm2 = norm_layer(dim)
         self.ff = FeedForward(in_features=dim, hidden_features=int(self.ff_dim), act_layer=act_layer, drop=drop)
     
     def forward(self, x, parent):
         W = self.window_size
         B, F, K, ED = x.shape
+        nW = K//W
         shortcut = x
         x = window_partition(x, W)
-        x = self.attn(self.norm1(x), parent)  # B, T_K, ED
+        x = self.attn(self.norm1(x), B, nW, parent)  # B_nW, W_F, ED
         x = window_reverse(x, W, F, K)
         x = shortcut + x
         x = x + self.ff(self.norm2(x))
@@ -162,15 +164,16 @@ class PartAttentionBlock(nn.Module):
 class Model(nn.Module):
     def __init__(self,
                  kp_dim=26,
-                 num_kps=29,
+                 num_kps=64,
                  temporal_dim=256,
                  num_classes=1000,
                  embed_dim=64,
                  pe=False,
                  depths=16,
                  num_heads=8,
+                 window_size=16,
                  ff_ratio=4.,
-                 edge_bias=None,
+                 adj_mat=None,
                  drop_rate=0., attn_drop_rate=0.,
                  norm_layer=nn.LayerNorm,
                  device=None,
@@ -179,20 +182,23 @@ class Model(nn.Module):
         self.kp_dim = kp_dim
         self.num_kps = num_kps
         self.temporal_dim = temporal_dim
+        self.window_size = window_size
         self.num_classes = num_classes
         self.pe = pe
         self.num_heads = num_heads
         self.ff_ratio = ff_ratio
-        edge_bias_ = edge_bias.masked_fill(edge_bias == 0, float(-10000)).masked_fill(edge_bias == 1, float(0)).unsqueeze(0).unsqueeze(0)
-        edge_bias_new = nn.Parameter(edge_bias_, requires_grad=False).to(device)
-        self.edge_bias_name = 'edge_bias'
+        adj_mask_ = adj_mat.masked_fill(adj_mat == 0, float(-10000)).masked_fill(adj_mat == 1, float(0))
+        adj_mask_new = nn.Parameter(adj_mask_, requires_grad=False).to(device)
+        self.adj_mask_name = 'adj_mask'
         self.embed_dim = embed_dim
         self.drop_rate = drop_rate
         self.attn_drop_rate = attn_drop_rate
         self.norm_layer = norm_layer
-        if self.edge_bias_name in self._buffers:
-            del self._buffers[self.edge_bias_name]
-        self.register_buffer(self.edge_bias_name, edge_bias_new)
+        if self.adj_mask_name in self._buffers:
+            del self._buffers[self.adj_mask_name]
+        self.register_buffer(self.adj_mask_name, adj_mask_new)
+        
+        assert self.num_kps%window_size == 0, "window size and number of kps are incompatible"
         
         mapping_size = embed_dim//2
         scale = 10
@@ -210,11 +216,12 @@ class Model(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         for _ in range(depths):
-            layer = AttentionBlock(dim=self.embed_dim,
+            layer = PartAttentionBlock(dim=self.embed_dim,
                                num_kps=self.num_kps,
                                num_heads=self.num_heads,
+                               window_size=self.window_size,
                                ff_ratio=self.ff_ratio,
-                               edge_bias=self.edge_bias_name,
+                               adj_mask=self.adj_mask_name,
                                drop=self.drop_rate, 
                                attn_drop=self.attn_drop_rate,
                                norm_layer=self.norm_layer)
@@ -242,15 +249,12 @@ class Model(nn.Module):
         x = x_
         if self.pe:
             x = self.pos_encoder(x)
-        
-        B, F, K, ED = x.size()
 
-        x = x.reshape(B, F*K, ED).contiguous()
         for layer in self.layers:
             x = layer(x, self)
-
-        x = self.norm(x)  # B F_K ED
-        x = self.avgpool(x.transpose(1, 2)).squeeze(-1)  # B ED
+        B, F, K, d = x.shape
+        x = self.norm(x)  # B F K ED
+        x = self.avgpool(x.transpose(1, 3).reshape(B, d, -1)).squeeze(-1)  # B ED
         return x
 
     def forward(self, x):
