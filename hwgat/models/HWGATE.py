@@ -47,7 +47,7 @@ def window_reverse(x, window_size=16, temporal_patch_size=4, temporal_dim=128, n
     return x
 
 class TemporalMerging(nn.Module):
-    def __init__(self, dim, embed_dim_inc_rate, temporal_patch_size, norm_layer=nn.LayerNorm, device = "cpu") -> None:
+    def __init__(self, dim, embed_dim_inc_rate, temporal_patch_size, norm_layer=nn.LayerNorm, device=None) -> None:
         super().__init__()
         self.dim = dim
         self.embed_dim_inc_rate = embed_dim_inc_rate
@@ -55,13 +55,12 @@ class TemporalMerging(nn.Module):
         self.device = device
     
     def forward(self, x):
+        TP = self.temporal_patch_size
         B, F, K, ED = x.shape
+        f = F//TP
 
-        x_list = []
-        for i in range(self.temporal_patch_size):
-            x_list.append(torch.index_select(x, 1, torch.arange(i, F, self.temporal_patch_size, device = self.device)))
-
-        x = torch.cat(x_list, -1)  # B F/temporal_patch_size ED
+        x = x.reshape(B, f, TP, K, ED).transpose(2, 3).contiguous()
+        x = x.reshape(B, f, K, -1).contiguous() # B F//TP ED*TP
 
         return x
     
