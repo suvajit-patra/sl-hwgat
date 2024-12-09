@@ -47,12 +47,10 @@ def window_reverse(x, window_size=16, temporal_patch_size=4, temporal_dim=128, n
     return x
 
 class TemporalMerging(nn.Module):
-    def __init__(self, dim, embed_dim_inc_rate, temporal_patch_size, norm_layer=nn.LayerNorm, device=None) -> None:
+    def __init__(self, dim, temporal_patch_size):
         super().__init__()
         self.dim = dim
-        self.embed_dim_inc_rate = embed_dim_inc_rate
         self.temporal_patch_size = temporal_patch_size
-        self.device = device
     
     def forward(self, x):
         TP = self.temporal_patch_size
@@ -223,7 +221,7 @@ class PartAttentionBlock(nn.Module):
         return x
 
 class PartAttentionLayer(nn.Module):
-    def __init__(self, dim, temporal_patch_size, temporal_dim, embed_dim_inc_rate, num_kps, depth, num_heads, window_size, adj_mat,
+    def __init__(self, dim, temporal_patch_size, temporal_dim, num_kps, depth, num_heads, window_size, adj_mat,
                  drop=0., attn_drop=0., ff_ratio=4., norm_layer=nn.LayerNorm, downsample=None, i_layer=0, device=None):
         super().__init__()
         self.dim = dim
@@ -248,7 +246,7 @@ class PartAttentionLayer(nn.Module):
 
         # temporal merging layer
         if downsample is not None:
-            self.downsample = downsample(dim, embed_dim_inc_rate, temporal_patch_size, norm_layer=norm_layer, device=device)
+            self.downsample = downsample(dim, temporal_patch_size)
         else:
             self.downsample = None
 
@@ -266,7 +264,6 @@ class Model(nn.Module):
                  temporal_dim=256,
                  num_classes=1000,
                  embed_dim=64,
-                 embed_dim_inc_rate=1,
                  temporal_patch_size=4,
                  pe=False,
                  depths=[2, 2, 6, 2],
@@ -287,8 +284,7 @@ class Model(nn.Module):
         self.pe = pe
         self.adj_mat = adj_mat
         self.embed_dim = embed_dim
-        self.embed_dim_inc_rate = embed_dim_inc_rate
-        self.num_features = int(embed_dim * embed_dim_inc_rate ** (self.num_layers - 1))
+        self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
         self.temporal_out_dim = temporal_dim // temporal_patch_size ** (self.num_layers - 1)
 
         assert self.num_kps%window_size == 0, "window size and number of kps are incompatible"
@@ -313,10 +309,9 @@ class Model(nn.Module):
                 adj_mat_t = torch.concatenate([adj_mat for _ in range(temporal_dim // temporal_patch_size ** (i_layer+1))])
             else:
                 adj_mat_t = None
-            layer = PartAttentionLayer(dim=int(embed_dim * embed_dim_inc_rate ** i_layer),
+            layer = PartAttentionLayer(dim=int(embed_dim * 2 ** i_layer),
                                temporal_patch_size=temporal_patch_size,
                                temporal_dim=temporal_dim//(temporal_patch_size ** i_layer),
-                               embed_dim_inc_rate=embed_dim_inc_rate,
                                num_kps=num_kps,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],

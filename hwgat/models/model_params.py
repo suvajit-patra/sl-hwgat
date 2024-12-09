@@ -249,7 +249,6 @@ class HWGATEParams():
         self.temporal_dim=dataset_params['src_len']
         self.num_classes=dataset_params['num_class']
         self.embed_dim=128
-        self.embed_dim_inc_rate=2
         self.temporal_patch_size=2
         self.pe=True
         self.depths=[2, 2, 4]
@@ -403,7 +402,7 @@ class HWGATEParams():
         return temp
     
     def get_model_params(self):
-        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.window_size,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.device
+        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.window_size,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.device
 
 class HGATEParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
@@ -412,7 +411,6 @@ class HGATEParams():
         self.temporal_dim=dataset_params['src_len']
         self.num_classes=dataset_params['num_class']
         self.embed_dim=128
-        self.embed_dim_inc_rate=2
         self.temporal_patch_size=2
         self.pe=True
         self.depths=[2, 2, 4]
@@ -490,7 +488,7 @@ class HGATEParams():
         return temp
     
     def get_model_params(self):
-        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.device
+        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.device
 
 
 class STGCNParams():
