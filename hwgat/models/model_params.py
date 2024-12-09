@@ -252,14 +252,13 @@ class HWGATEParams():
         self.embed_dim_inc_rate=2
         self.temporal_patch_size=2
         self.pe=True
-        self.depths=[4, 4, 8]
+        self.depths=[2, 2, 4]
         self.num_heads=[2, 4, 8]
         self.window_size=16
         self.drop_rate=0.1
         self.attn_drop_rate=0.0
         self.ff_ratio=2.
         self.norm_layer=nn.LayerNorm
-        self.kp_norm=True
         self.device=device
 
         self.edges = [[
@@ -404,25 +403,24 @@ class HWGATEParams():
         return temp
     
     def get_model_params(self):
-        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.window_size,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.kp_norm,self.device
+        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.window_size,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.device
 
-class HWGATE_no_windowParams():
+class HGATEParams():
     def __init__(self, dataset_params, input_dim, device=None) -> None:
         self.kp_dim=input_dim
         self.num_kps=29
         self.temporal_dim=dataset_params['src_len']
         self.num_classes=dataset_params['num_class']
-        self.embed_dim=64
+        self.embed_dim=128
         self.embed_dim_inc_rate=2
         self.temporal_patch_size=2
-        self.ape=True
-        self.depths=[12, 4, 2]
+        self.pe=True
+        self.depths=[2, 2, 4]
         self.num_heads=[2, 4, 8]
         self.drop_rate=0.1
-        self.attn_drop_rate=0.1
+        self.attn_drop_rate=0.0
         self.ff_ratio=2.
         self.norm_layer=nn.LayerNorm
-        self.kp_norm=True
         self.device=device
 
         self.edges = [[
@@ -492,7 +490,7 @@ class HWGATE_no_windowParams():
         return temp
     
     def get_model_params(self):
-        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.ape,self.depths,self.num_heads,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.kp_norm,self.device
+        return self.kp_dim, self.num_kps, self.temporal_dim,self.num_classes,self.embed_dim,self.embed_dim_inc_rate,self.temporal_patch_size,self.pe,self.depths,self.num_heads,self.adj_mat,self.drop_rate,self.attn_drop_rate,self.ff_ratio,self.norm_layer,self.device
 
 
 class STGCNParams():

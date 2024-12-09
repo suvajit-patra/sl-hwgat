@@ -5,59 +5,46 @@ from timm.models.layers import trunc_normal_
 from torch.autograd import Variable
 import math
 
-def window_partition(x, temporal_patch_size=4):
-    """
-    Args:
-        x: (B, H, C)
+class PositionalEncoding(nn.Module):
+    "Implement the PE function."
 
-    Returns:
-        windows: (num_windows*B, window_size, window_size, C)
-    """
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) *
+                             -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).unsqueeze(2)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + Variable(self.pe[:, :x.size(1)],
+                         requires_grad=False)
+        return self.dropout(x)
+
+def block_partition(x, temporal_patch_size=4):
     TP = temporal_patch_size
     B, F, K, ED = x.shape
     f = F//TP
-    x = x.reshape(B, f, TP, K, ED)
+    x = x.reshape(B, f, TP, K, ED)  # B, F//TP, TP, K, ED
     x = x.view(B*f, TP*K, ED)  # B_f, TP_K, ED
     return x
 
 
-
-def window_reverse(x, temporal_patch_size=4, temporal_dim=128, num_kp=27):
-    """
-    Args:
-        x: (B, H, C)
-
-    Returns:
-        windows: (num_windows*B, window_size, window_size, C)
-    """
-    #print("window_reverse",x.shape)
+def block_reverse(x, temporal_patch_size=4, temporal_dim=128, num_kp=64):
     TP = temporal_patch_size
     F, K = temporal_dim, num_kp
     B_f, TP_K, ED = x.shape
-    f= F//TP
-    B = int(B_f/ f)
-    x = x.reshape(B, f, TP, K, ED)
-    x = x.view(B, F, K, ED)
+    f = F//TP
+    B = int(B_f // f)
+    x = x.reshape(B, f, TP, K, ED)  # B, F//TP, TP, K, ED
+    x = x.view(B, F, K, ED) # B, F, K, ED
     return x
-
-class KpEmbed(nn.Module):
-    def __init__(self, kp_dim=2, embed_dim=64, norm_layer=None) -> None:
-        super().__init__()
-        self.kp_dim = kp_dim
-        self.embed_dim = embed_dim
-
-        self.proj = nn.Linear(in_features=self.kp_dim, out_features=embed_dim)
-        if norm_layer is not None:
-            self.norm = norm_layer(embed_dim)
-        else:
-            self.norm = None
-
-    def forward(self, x):
-        B, F, K, D = x.shape
-        x = self.proj(x)  # B, F, K, ed
-        if self.norm is not None:
-            x = self.norm(x)
-        return x
 
 class TemporalMerging(nn.Module):
     def __init__(self, dim, embed_dim_inc_rate, temporal_patch_size, norm_layer=nn.LayerNorm, device = "cpu") -> None:
@@ -65,8 +52,6 @@ class TemporalMerging(nn.Module):
         self.dim = dim
         self.embed_dim_inc_rate = embed_dim_inc_rate
         self.temporal_patch_size = temporal_patch_size
-        self.reduction = nn.Linear(temporal_patch_size * dim, embed_dim_inc_rate * dim, bias=False)
-        self.norm = norm_layer(temporal_patch_size * dim)
         self.device = device
     
     def forward(self, x):
@@ -77,10 +62,6 @@ class TemporalMerging(nn.Module):
             x_list.append(torch.index_select(x, 1, torch.arange(i, F, self.temporal_patch_size, device = self.device)))
 
         x = torch.cat(x_list, -1)  # B F/temporal_patch_size ED
-        # print('after concate', x.shape)
-
-        x = self.norm(x)
-        x = self.reduction(x)
 
         return x
     
@@ -95,50 +76,38 @@ class MSA(nn.Module):
 
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
-        self.deg_matrix = torch.inverse(adj_mat@adj_mat)
-        self.adj_mat = nn.Parameter(adj_mat, requires_grad=True)
-        # print(adj_mat.shape)
-        
+        self.adj_mat = adj_mat
         self.qkv = nn.Linear(dim, dim * 3)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
         self.softmax = nn.Softmax(dim=-1)
-        self.attn_act = nn.ReLU()
     
-    def forward(self, x, B, f, mask=None):
-        #print(x.shape)
-        B_f, W_TP, ED = x.shape
-        qkv = self.qkv(x).reshape(B_f, W_TP, 3, self.num_heads, ED // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
+    def forward(self, x, B, f, attn_mask=None):
+        B_f, TP_K, ED = x.shape
+        qkv = self.qkv(x).reshape(B_f, TP_K, 3, self.num_heads, ED // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
         q = q * self.scale
 
         attn = (q @ k.transpose(-2, -1))
-        # print('QKt shape', attn.shape)
-        # print("Edge bias shape", self.adj_mat.shape)
 
-        if mask is not None:
-            # print('mask and attention shape ',mask.shape, attn.view(B, f*w, *attn.shape[1:]).shape)
-            attn = attn.view(B, f, *attn.shape[1:]) * mask.unsqueeze(1).unsqueeze(0)
+        if attn_mask is not None:
+            attn = attn.view(B, f, *attn.shape[1:]) * attn_mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(B*f, *attn.shape[2:])
         
         if self.adj_mat is not None:
-            #print(attn.shape, self.adj_mat.shape)
-            attn = attn.view(B, f, *attn.shape[1:]) * self.adj_mat.unsqueeze(0).unsqueeze(1)
-            # attn = self.deg_matrix.unsqueeze(0).unsqueeze(1)*attn
+            attn = attn.view(B, f, *attn.shape[1:]) * self.adj_mat
             attn = attn.view(B*f, *attn.shape[2:])
-
-        # print(attn)
+        
         attn = attn.masked_fill(attn == 0, float(-10000))
-        attn = self.softmax(-1*attn)
+        attn = self.softmax(attn)
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B_f, W_TP, ED)
+        x = (attn @ v).transpose(1, 2).reshape(B_f, TP_K, ED)
         x = self.proj(x)
         x = self.proj_drop(x)
-        # print('MSA out', x.shape)
         return x
     
 class FeedForward(nn.Module):
@@ -159,8 +128,8 @@ class FeedForward(nn.Module):
         x = self.drop(x)
         return x
     
-class PartAttentionBlock(nn.Module):
-    def __init__(self, dim, num_kps=27,
+class GraphAttentionBlock(nn.Module):
+    def __init__(self, dim, num_kps=64,
                 num_heads=4,
                 temporal_patch_size=4,
                 temporal_dim=128,
@@ -183,16 +152,13 @@ class PartAttentionBlock(nn.Module):
         self.act_layer = act_layer
 
         self.norm1 = norm_layer(dim)
-        self.attn = MSA(dim, num_heads=num_heads, adj_mat=adj_mat,
-            attn_drop=attn_drop, proj_drop=drop)
 
         self.norm2 = norm_layer(dim)
         self.ff = FeedForward(in_features=dim, hidden_features=int(self.ff_dim), act_layer=act_layer, drop=drop)
 
         if self.shift_size > 0:
             # calculate attention mask for SW-MSA
-            # print(temporal_dim)
-            F, K = temporal_dim, num_kps
+            F, K = self.temporal_dim, self.num_kps
             frame_mask = torch.zeros((1, F, K, 1))  # 1 H W 1
             t_slices = (slice(0, -temporal_patch_size),
                         slice(-temporal_patch_size, -shift_size),
@@ -203,66 +169,64 @@ class PartAttentionBlock(nn.Module):
                 frame_mask[:, t, :] = cnt
                 cnt += 1
 
-            # print('frame mask', frame_mask.shape)
-            mask_windows = window_partition(frame_mask, temporal_patch_size).squeeze(2)
-            # print('mask_windows', mask_windows.shape)
-            attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+            mask_blocks = block_partition(frame_mask, temporal_patch_size).squeeze(2)
+            attn_mask = mask_blocks.unsqueeze(1) - mask_blocks.unsqueeze(2)
             attn_mask = attn_mask.masked_fill(attn_mask != 0, float(0.0)).masked_fill(attn_mask == 0, float(1))
-            # print('attn_mask', attn_mask.shape)
         else:
             attn_mask = None
-
+        
         self.register_buffer("attn_mask", attn_mask)
+
+        self.attn = MSA(dim, num_heads=num_heads, adj_mat=adj_mat,
+            attn_drop=attn_drop, proj_drop=drop)
     
     def forward(self, x):
         # print('in p_att_blk', x.shape)
         TP = self.temporal_patch_size
         B, F, K, ED = x.shape
-        f, nW = F//TP, K
+        f = F//TP
 
         shortcut = x
 
         # cyclic shift
         if self.shift_size > 0:
             shifted_x = torch.roll(x, shifts=-self.shift_size, dims=1)
-            # partition windows
         else:
             shifted_x = x
-            # partition windows
-        x = window_partition(shifted_x, TP)
+
+        x = block_partition(shifted_x, TP)
 
         x = self.norm1(x)
         # W-MSA/TS-MSA
-        x = self.attn(x, B, f, mask=self.attn_mask)  # B_f, W_TP, ED
+        x = self.attn(x, B, f, attn_mask=self.attn_mask)  # B_f, TP_K, ED
+
+        x = block_reverse(x, TP, F, K)
 
         # cyclic shift
         if self.shift_size > 0:
             shifted_x = torch.roll(x, shifts=self.shift_size, dims=1)
-            # partition windows
         else:
             shifted_x = x
-            # partition windows
-        x = window_reverse(shifted_x, TP, F, K)
 
-        x = shortcut + x
+        x = shortcut + shifted_x
         # FFN
         x = x + self.ff(self.norm2(x))
 
         return x
 
-class PartAttentionLayer(nn.Module):
+class BlockAttentionLayer(nn.Module):
     def __init__(self, dim, temporal_patch_size, temporal_dim, embed_dim_inc_rate, num_kps, depth, num_heads, adj_mat,
-                 drop=0., attn_drop=0., ff_ratio=4., norm_layer=nn.LayerNorm, downsample=None, device=None):
+                 drop=0., attn_drop=0., ff_ratio=4., norm_layer=nn.LayerNorm, downsample=None, i_layer=0, device=None):
         super().__init__()
         self.dim = dim
         self.depth = depth
         self.num_heads = num_heads
         self.adj_mat = adj_mat.to(device)
-        # self.register_buffer('adj_mat', self.adj_mat)
+        self.i_layer = i_layer
 
         # build blocks
         self.blocks = nn.ModuleList([
-            PartAttentionBlock(dim=dim, num_kps=num_kps,
+            GraphAttentionBlock(dim=dim, num_kps=num_kps,
                                  num_heads=num_heads,
                                  temporal_patch_size=temporal_patch_size,
                                  temporal_dim = temporal_dim,
@@ -280,9 +244,8 @@ class PartAttentionLayer(nn.Module):
             self.downsample = None
 
     def forward(self, x):
-        input = x
         for blk in self.blocks:
-            x = blk(x) + input
+            x = blk(x)
         if self.downsample is not None:
             x = self.downsample(x)
         return x
@@ -290,19 +253,18 @@ class PartAttentionLayer(nn.Module):
 class Model(nn.Module):
     def __init__(self,
                  kp_dim=26,
-                 num_kps=29,
+                 num_kps=64,
                  temporal_dim=256,
                  num_classes=1000,
                  embed_dim=64,
                  embed_dim_inc_rate=1,
                  temporal_patch_size=4,
-                 ape=False,
+                 pe=False,
                  depths=[2, 2, 6, 2],
                  num_heads=[2, 4, 8, 16],
                  adj_mat=None,
                  drop_rate=0., attn_drop_rate=0., ff_ratio=4.,
                  norm_layer=nn.LayerNorm,
-                 kp_norm=True,
                  device=None,
                  ) -> None:
         super().__init__()
@@ -311,43 +273,34 @@ class Model(nn.Module):
         self.temporal_dim = temporal_dim
         self.num_classes = num_classes
         self.num_layers = len(depths)
-        self.ape = ape
+        self.pe = pe
         self.adj_mat = adj_mat
         self.embed_dim = embed_dim
         self.embed_dim_inc_rate = embed_dim_inc_rate
         self.num_features = int(embed_dim * embed_dim_inc_rate ** (self.num_layers - 1))
         self.temporal_out_dim = temporal_dim // temporal_patch_size ** (self.num_layers - 1)
-
-        #assert self.num_kps%window_size == 0, "window size and number of kps are incompatible"
         assert self.temporal_dim%temporal_patch_size == 0, "temporal dimension and temporal patch size are incompatible"
 
-        # split image into non-overlapping patches
-        self.patch_embed = KpEmbed(kp_dim=self.kp_dim, embed_dim=self.embed_dim,
-            norm_layer=norm_layer if kp_norm else None)
-        
         mapping_size = embed_dim//2
         scale = 10
         
+        # fourier mapping
         B_gauss = torch.normal(0.0, 1.0, (mapping_size, self.kp_dim))
         B = B_gauss * scale
         self.B = nn.Parameter(B, requires_grad=False)
 
-        # absolute position embedding
-        if self.ape:
-            self.absolute_pos_embed = nn.Parameter(torch.zeros(1, self.temporal_dim, 1, 1))
-            trunc_normal_(self.absolute_pos_embed, std=.02)
-        
-        self.pos_drop = nn.Dropout(p=drop_rate)
+        # position encoding
+        if self.pe:
+            self.pos_encoder = PositionalEncoding(embed_dim, drop_rate, temporal_dim)
 
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
-            adj_shape = temporal_patch_size
             if adj_mat is not None:
-                adj_mat_t =  adj_mat
+                adj_mat_t = adj_mat
             else:
                 adj_mat_t = None
-            layer = PartAttentionLayer(dim=int(embed_dim * embed_dim_inc_rate ** i_layer),
+            layer = BlockAttentionLayer(dim=int(embed_dim * embed_dim_inc_rate ** i_layer),
                                temporal_patch_size=temporal_patch_size,
                                temporal_dim=temporal_dim//(temporal_patch_size ** i_layer),
                                embed_dim_inc_rate=embed_dim_inc_rate,
@@ -358,12 +311,14 @@ class Model(nn.Module):
                                drop=drop_rate, attn_drop=attn_drop_rate, ff_ratio=ff_ratio,
                                norm_layer=norm_layer,
                                downsample=TemporalMerging if (i_layer < self.num_layers - 1) else None,
+                               i_layer=i_layer,
                                device=device)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
-        self.avgpool = nn.AvgPool1d(num_kps)
-        self.head = nn.Linear(self.num_features*self.temporal_out_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.avgpool = nn.AvgPool1d(self.temporal_out_dim * self.num_kps)
+        # self.weighted_avg = nn.Linear(self.temporal_out_dim * self.num_kps, 1)
+        self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 
         self.apply(self._init_weights)
 
@@ -377,31 +332,21 @@ class Model(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward_features(self, x):
-        # print('input shape', x.shape)
         x_proj = (2.*torch.pi*x) @ self.B.transpose(1,0)
         x_ = torch.cat([torch.sin(x_proj), torch.cos(x_proj)], axis=-1)
         x = x_
-        # print('embed input shape', x.shape)
-        if self.ape:
-            x = x + self.absolute_pos_embed
-        x = self.pos_drop(x)
-        # print('after ape shape', x.shape)
+        if self.pe:
+            x = self.pos_encoder(x)
 
         for layer in self.layers:
             x = layer(x)
 
         B, f, K, d = x.shape
-        x = self.norm(x)  # B f K d
-        x = self.avgpool(x.reshape(B*f, K, d).transpose(1, 2))  # B*f d 1
-        x = x.reshape(B, f*d)
-        # x = torch.flatten(x, 1)
+        x = self.norm(x)
+        x = self.avgpool(x.transpose(1, 3).reshape(B, d, -1)).squeeze(-1)
         return x
 
     def forward(self, x):
-        # if self.training:
-        #     random_idx = torch.rand(x.shape[1])
-        #     x[:, random_idx<0.1] = 0
         x = self.forward_features(x)
-        # print('feature shape', x.shape)
         x = self.head(x)
         return x

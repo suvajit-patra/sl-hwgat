@@ -28,14 +28,6 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 def window_partition(x, window_size=16, temporal_patch_size=4):
-    """
-    Args:
-        x: (B, H, W, C)
-        window_size (int): window size
-
-    Returns:
-        windows: (num_windows*B, window_size, window_size, C)
-    """
     W, TP = window_size, temporal_patch_size
     B, F, K, ED = x.shape
     f, nW = F//TP, K//W
@@ -44,16 +36,7 @@ def window_partition(x, window_size=16, temporal_patch_size=4):
     return x
 
 
-
 def window_reverse(x, window_size=16, temporal_patch_size=4, temporal_dim=128, num_kp=64):
-    """
-    Args:
-        x: (B, H, W, C)
-        window_size (int): window size
-
-    Returns:
-        windows: (num_windows*B, window_size, window_size, C)
-    """
     W, TP = window_size, temporal_patch_size
     F, K = temporal_dim, num_kp
     B_f_nW, W_TP, ED = x.shape
@@ -104,12 +87,11 @@ class MSA(nn.Module):
     def forward(self, x, B, f, nW, mask=None):
         B_f_nW, W_TP, ED = x.shape
         qkv = self.qkv(x).reshape(B_f_nW, W_TP, 3, self.num_heads, ED // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
         q = q * self.scale
 
         attn = (q @ k.transpose(-2, -1))
-        # print('QKt shape', attn.shape)
 
         # making some attn 0 to prevent overfitting
         if self.training:
@@ -121,19 +103,12 @@ class MSA(nn.Module):
             attn = attn * index_array
 
         if mask is not None:
-            # print('mask and attention shape ',mask.shape, attn.view(B, f*w, *attn.shape[1:]).shape)
             attn = attn.view(B, f*nW, *attn.shape[1:]) * mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(B*f*nW, *attn.shape[2:])
         
         if self.adj_mat is not None:
             attn = attn.view(B, f*nW, *attn.shape[1:]) * self.adj_mat.unsqueeze(1)
             attn = attn.view(B*f*nW, *attn.shape[2:])
-
-        # if self.training:
-        #     attn_copy = attn.detach().clone()
-        #     attn_copy = self.softmax(attn_copy)
-        #     sample_array = 1 - torch.bernoulli(attn_copy)
-        #     attn = attn * sample_array
         
         attn = attn.masked_fill(attn == 0, float(-10000))
         attn = self.softmax(attn)
@@ -195,8 +170,6 @@ class PartAttentionBlock(nn.Module):
         self.ff = FeedForward(in_features=dim, hidden_features=int(self.ff_dim), act_layer=act_layer, drop=drop)
 
         if self.shift_size > 0:
-            # calculate attention mask for SW-MSA
-            # print(temporal_dim)
             F, K = temporal_dim, num_kps
             frame_mask = torch.zeros((1, F, K, 1))  # 1 H W 1
             t_slices = (slice(0, -temporal_patch_size),
@@ -208,19 +181,15 @@ class PartAttentionBlock(nn.Module):
                 frame_mask[:, t, :] = cnt
                 cnt += 1
 
-            # print('frame mask', frame_mask.shape)
             mask_windows = window_partition(frame_mask, window_size, temporal_patch_size).squeeze(2)
-            # print('mask_windows', mask_windows.shape)
             attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
             attn_mask = attn_mask.masked_fill(attn_mask != 0, float(0.0)).masked_fill(attn_mask == 0, float(1))
-            # print('attn_mask', attn_mask.shape)
         else:
             attn_mask = None
 
         self.register_buffer("attn_mask", attn_mask)
     
     def forward(self, x):
-        # print('in p_att_blk', x.shape)
         W, TP = self.window_size, self.temporal_patch_size
         B, F, K, ED = x.shape
         f, nW = F//TP, K//W
@@ -230,17 +199,15 @@ class PartAttentionBlock(nn.Module):
         # cyclic shift
         if self.shift_size > 0:
             shifted_x = torch.roll(x, shifts=-self.shift_size, dims=1)
-            # partition windows
         else:
             shifted_x = x
-            # partition windows
         x = window_partition(shifted_x, W, TP)
 
         x = self.norm1(x)
-        # W-MSA/TS-MSA
+        # MSA/TS-MSA
         x = self.attn(x, B, f, nW, mask=self.attn_mask)  # B_f_nW, W_TP, ED
 
-        x = window_reverse(shifted_x, W, TP, F, K)
+        x = window_reverse(x, W, TP, F, K)
 
         # cyclic shift
         if self.shift_size > 0:
@@ -250,7 +217,7 @@ class PartAttentionBlock(nn.Module):
             shifted_x = x
             # partition windows
 
-        x = shortcut + x
+        x = shortcut + shifted_x
         # FFN
         x = x + self.ff(self.norm2(x))
 
@@ -265,9 +232,7 @@ class PartAttentionLayer(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.adj_mat = adj_mat.to(device)
-        self.drop_part = DropPart(0.2, num_kps=num_kps, device=device)
         self.i_layer = i_layer
-        # self.register_buffer('adj_mat', self.adj_mat)
 
         # build blocks
         self.blocks = nn.ModuleList([
@@ -289,11 +254,8 @@ class PartAttentionLayer(nn.Module):
             self.downsample = None
 
     def forward(self, x):
-        input = x
-        for idx, blk in enumerate(self.blocks):
-            x = blk(x) # + input
-            # if self.i_layer == 0 and idx > len(self.blocks) - 4:
-            #     x = self.drop_part(x)
+        for blk in self.blocks:
+            x = blk(x)
         if self.downsample is not None:
             x = self.downsample(x)
         return x
@@ -314,7 +276,6 @@ class Model(nn.Module):
                  adj_mat=None,
                  drop_rate=0., attn_drop_rate=0., ff_ratio=4.,
                  norm_layer=nn.LayerNorm,
-                 kp_norm=True,
                  device=None,
                  ) -> None:
         super().__init__()
@@ -337,14 +298,12 @@ class Model(nn.Module):
         mapping_size = embed_dim//2
         scale = 10
         
+        # fourier mapping
         B_gauss = torch.normal(0.0, 1.0, (mapping_size, self.kp_dim))
         B = B_gauss * scale
         self.B = nn.Parameter(B, requires_grad=False)
 
-        # self.patch_embed = KpEmbed(kp_dim=self.kp_dim, embed_dim=self.embed_dim,
-        #     norm_layer=norm_layer if kp_norm else None)
-
-        # absolute position embedding
+        # position encoding
         if self.pe:
             self.pos_encoder = PositionalEncoding(embed_dim, drop_rate, temporal_dim)
 
@@ -387,28 +346,21 @@ class Model(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward_features(self, x):
-        # print('input shape', x.shape)
         x_proj = (2.*torch.pi*x) @ self.B.transpose(1,0)
         x_ = torch.cat([torch.sin(x_proj), torch.cos(x_proj)], axis=-1)
         x = x_
-        # x = self.patch_embed(x) + x_
-        # x = self.patch_embed(x)
-        # print('embed input shape', x.shape)
         if self.pe:
             x = self.pos_encoder(x)
-        # print('after ape shape', x.shape)
 
         for layer in self.layers:
             x = layer(x)
 
         B, f, K, d = x.shape
         x = self.norm(x)
-        x = self.avgpool(x.transpose(1, 3).reshape(B, d, -1))
-        x = x.reshape(B, d)
+        x = self.avgpool(x.transpose(1, 3).reshape(B, d, -1)).squeeze(-1)
         return x
 
     def forward(self, x):
         x = self.forward_features(x)
-        # print('feature shape', x.shape)
         x = self.head(x)
         return x
