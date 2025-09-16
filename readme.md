@@ -95,6 +95,18 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Citation
 If you find this project useful in your research, please consider cite:
 ```bibtex
+@article{patra2025hierarchical,
+    title={Hierarchical Windowed Graph Attention Transformer Encoder and a Large Scale Dataset for Indian Sign Language Recognition},
+    author={Suvajit Patra and Arkadip Maitra and Megha Tiwari and K Kumaran and Swathy Prabhu and Swami Punyeshwarananda and Soumitra Samanta},
+    journal={Pattern Analysis and Applications},
+    volume={28},
+    number={3},
+    pages={148},
+    year={2025},
+    publisher={Springer}
+}
+```
+```bibtex
 @misc{patra2024hierarchicalwindowedgraphattention,
       title={Hierarchical Windowed Graph Attention Network and a Large Scale Dataset for Isolated Indian Sign Language Recognition}, 
       author={Suvajit Patra and Arkadip Maitra and Megha Tiwari and K. Kumaran and Swathy Prabhu and Swami Punyeshwarananda and Soumitra Samanta},
